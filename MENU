@@ -1,0 +1,78 @@
+import tkinter as tk
+from tkinter import messagebox
+from PIL import Image, ImageTk
+import subprocess
+
+class MenuInicial:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Escolha do Equipamento")
+        self.root.resizable(False, False)
+
+        # ======= Tamanho fixo e centralização =======
+        window_width = 800
+        window_height = 550
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
+        x = int((screen_width / 2) - (window_width / 2))
+        y = int((screen_height / 2) - (window_height / 2))
+        self.root.geometry(f"{window_width}x{window_height}+{x}+{y}")
+
+        # ======= Fundo com imagem =======
+        self.bg_image = Image.open("C:/Users/Alex/Pictures/PLAYBACK JIMI/Fundo.png").resize((800, 600))
+        self.bg_photo = ImageTk.PhotoImage(self.bg_image)
+
+        self.canvas = tk.Canvas(root, width=800, height=600)
+        self.canvas.pack(fill="both", expand=True)
+        self.canvas.create_image(0, 0, image=self.bg_photo, anchor="nw")
+
+        # ======= Estilo dos botões =======
+        self.estilo_botao = {
+            "font": ("Helvetica", 14, "bold"),
+            "bg": "#696969",
+            "fg": "white",
+            "activebackground": "#005f99",
+            "activeforeground": "red",
+            "relief": "flat",
+            "bd": 0,
+            "highlightthickness": 0,
+            "padx": 30,
+            "pady": 10,
+        }
+
+        # ======= Componentes da interface =======
+        self.canvas.create_text(400, 60, text="Selecione o modelo da câmera",
+                                font=("Helvetica", 20, "bold"), fill="white")
+
+        self.botao_g5 = tk.Button(root, text="G5", command=self.abrir_g5, **self.estilo_botao)
+        self.botao_g5.place(x=310, y=100, width=180, height=45)
+
+        self.botao_g5plus = tk.Button(root, text="G5_PLUS", command=self.abrir_g5plus, **self.estilo_botao)
+        self.botao_g5plus.place(x=310, y=160, width=180, height=45)
+
+        msg = (
+            "⚠ Para utilizar o software:\n"
+            "- A VPN deve estar conectada.\n"
+            "- A câmera deve estar com APN pública ativa (Zap).\n"
+            "➡ Solicite à equipe de conectividade a ativação da APN no chip.\n"
+            "Informe o número do chip da câmera."
+        )
+        self.canvas.create_text(400, 450, text=msg, fill="red",
+                                font=("Helvetica", 15), width=550)
+
+    def abrir_g5(self):
+        try:
+            subprocess.Popen(["python3", "script_g5.py"])
+        except Exception as e:
+            messagebox.showerror("Erro", f"Erro ao abrir script da G5: {e}")
+
+    def abrir_g5plus(self):
+        try:
+            subprocess.Popen(["python3", "script_g5plus.py"])
+        except Exception as e:
+            messagebox.showerror("Erro", f"Erro ao abrir script da G5_PLUS: {e}")
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = MenuInicial(root)
+    root.mainloop()
