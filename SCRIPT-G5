@@ -1,0 +1,212 @@
+import tkinter as tk
+from tkinter import messagebox, ttk
+from PIL import Image, ImageTk
+import requests
+import time
+import os
+import subprocess
+from urllib.parse import urlencode
+import threading
+
+CAMERA_API_URL = "http://10.1.1.100:9080/api/device/sendInstruct"
+PAR_GENERATOR_URL = "http://core-oci-par-generator.gru.qa/oci/generatePar"
+TOKEN = "2zgWDPl7SbZp1TZ95ZKdeV1g4WF_878pqrHn4tJeDC4F4eyU1"
+SANDBOX_IP = "http://136.248.81.88:5001"
+
+class PlaybackApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Playback - G5")
+        self.root.geometry("950x620")
+        self.root.resizable(False, False)
+
+        # Fundo
+        self.bg_image = Image.open("C:/Users/Alex/Pictures/PLAYBACK JIMI/Fundo.png").resize((950, 620))
+        self.bg_photo = ImageTk.PhotoImage(self.bg_image)
+        self.canvas = tk.Canvas(root, width=950, height=620)
+        self.canvas.pack(fill="both", expand=True)
+        self.canvas.create_image(0, 0, image=self.bg_photo, anchor="nw")
+
+        self.imei_var = tk.StringVar()
+        self.files = []
+        self.pasta_destino = ""
+
+        entry_frame = tk.Frame(root, bg="#f0f0f0")
+        entry_frame.place(x=20, y=20)
+
+        tk.Label(entry_frame, text="IMEI da Câmera:", font=("Helvetica", 12, "bold")).pack(side="left", padx=5)
+        tk.Entry(entry_frame, textvariable=self.imei_var, width=30).pack(side="left", padx=5)
+        tk.Button(entry_frame, text="Buscar Filelist", command=self.buscar_filelist,
+                  bg="#007acc", fg="white", font=("Helvetica", 10, "bold")).pack(side="left", padx=5)
+
+        frame_list = tk.Frame(root, bg="#f9f9f9")
+        frame_list.place(x=20, y=70, width=580, height=380)
+
+        tk.Label(frame_list, text="Arquivos disponíveis:", font=("Helvetica", 10, "bold")).pack(pady=5)
+        self.file_listbox = tk.Listbox(frame_list, width=70, height=18, selectmode="extended")
+        self.file_listbox.pack(side="left", fill="both", expand=True, padx=5)
+
+        scrollbar = tk.Scrollbar(frame_list, orient="vertical", command=self.file_listbox.yview)
+        scrollbar.pack(side="right", fill="y")
+        self.file_listbox.config(yscrollcommand=scrollbar.set)
+
+        frame_status = tk.Frame(root, bg="#f9f9f9")
+        frame_status.place(x=620, y=70, width=300, height=380)
+
+        tk.Label(frame_status, text="Arquivos baixados:", font=("Helvetica", 10, "bold")).pack(pady=5)
+        self.baixados_listbox = tk.Listbox(frame_status, width=45, height=18)
+        self.baixados_listbox.pack()
+
+        self.pasta_label = tk.Label(root, text="Arquivos serão salvos em: ", anchor="w", bg="#ffffff", fg="#000000")
+        self.pasta_label.place(x=20, y=470)
+
+        tk.Button(root, text="Abrir Pasta", command=self.abrir_pasta,
+                  bg="#444", fg="white", font=("Helvetica", 10, "bold")).place(x=620, y=470, width=120, height=30)
+
+        tk.Button(root, text="Baixar Selecionados", command=self.baixar_videos,
+                  bg="#28a745", fg="white", font=("Helvetica", 10, "bold")).place(x=760, y=470, width=150, height=30)
+
+        self.progress = ttk.Progressbar(root, orient="horizontal", length=900, mode="determinate")
+        self.progress.place(x=20, y=520)
+
+    def enviar_comando(self, imei, cmd_content, request_id):
+        payload = {
+            "imei": imei,
+            "cmdContent": cmd_content,
+            "serverFlagId": "0",
+            "proNo": "128",
+            "platform": "web",
+            "requestId": str(request_id),
+            "cmdType": "normallns",
+            "token": TOKEN
+        }
+        headers = {"Content-Type": "application/x-www-form-urlencoded"}
+        try:
+            encoded_payload = urlencode(payload)
+            response = requests.post(CAMERA_API_URL, data=encoded_payload, headers=headers, timeout=90)
+            return response.json()
+        except Exception as e:
+            messagebox.showerror("Erro", f"Erro ao enviar comando: {e}")
+            return None
+
+    def buscar_filelist(self):
+        imei = self.imei_var.get().strip()
+        if not imei:
+            messagebox.showwarning("Atenção", "Informe o IMEI.")
+            return
+
+        self.file_listbox.delete(0, tk.END)
+        self.baixados_listbox.delete(0, tk.END)
+        self.pasta_label.config(text="Arquivos serão salvos em: ")
+        threading.Thread(target=self._buscar_filelist_thread, args=(imei,), daemon=True).start()
+
+    def _buscar_filelist_thread(self, imei):
+        self.progress.start()
+
+        apn_cmd = "APN,ZAP VIVO,zap.vivo.com.br,724,06,,,,vivo,,vivo,,,,"
+        resp_apn = self.enviar_comando(imei, apn_cmd, request_id=9)
+        time.sleep(5)
+
+        filelist_url = f"{SANDBOX_IP}/filelist"
+        self.enviar_comando(imei, f"FILELIST,{filelist_url}", request_id=10)
+        time.sleep(5)
+
+        self.enviar_comando(imei, "FILELIST", request_id=11)
+        time.sleep(15)
+
+        try:
+            resp = requests.get(f"{SANDBOX_IP}/filelist/{imei}/files")
+            self.files = resp.json()
+            self.file_listbox.delete(0, tk.END)
+
+            if not self.files:
+                self.file_listbox.insert(tk.END, "Nenhum arquivo encontrado.")
+            else:
+                if isinstance(self.files[0], str):
+                    self.files = [{"name": f} for f in self.files]
+                for f in self.files:
+                    self.file_listbox.insert(tk.END, f.get("name"))
+
+            self.pasta_destino = os.path.abspath(os.path.join("videos_baixados", imei))
+            self.pasta_label.config(text=f"Arquivos serão salvos em: {self.pasta_destino}")
+
+        except Exception as e:
+            messagebox.showerror("Erro", f"Erro ao buscar arquivos: {e}")
+        finally:
+            self.progress.stop()
+
+    def baixar_videos(self):
+        imei = self.imei_var.get().strip()
+        selecionados = self.file_listbox.curselection()
+        if not selecionados:
+            messagebox.showwarning("Atenção", "Selecione pelo menos um arquivo.")
+            return
+        if len(selecionados) > 6:
+            messagebox.showwarning("Atenção", "Você pode baixar no máximo 6 arquivos por vez.")
+            return
+
+        arquivos = []
+        for idx in selecionados:
+            if idx >= len(self.files):
+                continue
+            arquivos.append(self.files[idx].get('name'))
+
+        if not arquivos:
+            messagebox.showwarning("Atenção", "Nenhum arquivo válido selecionado.")
+            return
+
+        threading.Thread(target=self._baixar_videos_thread, args=(imei, arquivos), daemon=True).start()
+
+    def _baixar_videos_thread(self, imei, arquivos):
+        self.progress["value"] = 0
+        self.progress["maximum"] = 100 * len(arquivos)
+
+        pasta = os.path.join("videos_baixados", imei)
+        os.makedirs(pasta, exist_ok=True)
+
+        for i, arquivo in enumerate(arquivos, 1):
+            nome_sem_ext = arquivo.replace(".mp4", "")
+            self.enviar_comando(imei, f"HVIDEO,{nome_sem_ext},1", request_id=20 + i)
+            time.sleep(2)
+            self.progress["value"] += 50
+
+            oci_url = f"https://objectstorage.sa-saopaulo-1.oci.customer-oci.com/n/grkocmhf7oyf/b/PD-JimiG5-V6Objects/o/EVENT_{imei}_00000000_{arquivo}"
+            try:
+                par_resp = requests.put(PAR_GENERATOR_URL, json={"url": oci_url})
+                link = par_resp.json().get("url")
+                if not link:
+                    messagebox.showerror("Erro", f"Link PAR não retornado para o arquivo {arquivo}.")
+                    continue
+
+                video_resp = requests.get(link)
+                destino = os.path.join(pasta, arquivo)
+                with open(destino, "wb") as f:
+                    f.write(video_resp.content)
+
+                self.baixados_listbox.insert(tk.END, arquivo)
+
+            except Exception as e:
+                messagebox.showerror("Erro", f"Erro ao baixar o arquivo {arquivo}: {e}")
+                continue
+
+        self.progress["value"] = 100 * len(arquivos)
+        messagebox.showinfo("Sucesso", f"{len(arquivos)} arquivo(s) baixado(s) com sucesso em:\n{os.path.abspath(pasta)}")
+
+    def abrir_pasta(self):
+        if self.pasta_destino and os.path.exists(self.pasta_destino):
+            try:
+                os.startfile(self.pasta_destino)
+            except:
+                subprocess.Popen(["xdg-open", self.pasta_destino])
+        else:
+            messagebox.showinfo("Aviso", "Nenhuma pasta disponível ainda.")
+
+    def show_info(self, texto):
+        messagebox.showinfo("Informação", texto)
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    root.configure(bg="red")           # Fundo branco
+    root.wm_attributes('-alpha', 0.94)   # Janela levemente transparente
+    app = PlaybackApp(root)
+    root.mainloop()
